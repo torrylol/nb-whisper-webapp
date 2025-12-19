@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Norsk Tale-til-Tekst</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .record-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: #667eea;
+            color: white;
+            font-size: 1.2em;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto 30px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .record-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .record-button:active {
+            transform: scale(0.95);
+        }
+
+        .record-button.recording {
+            background: #ef4444;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            }
+            50% {
+                box-shadow: 0 4px 30px rgba(239, 68, 68, 0.8);
+            }
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 1.1em;
+            color: #666;
+            min-height: 30px;
+        }
+
+        .status.recording {
+            color: #ef4444;
+            font-weight: 600;
+        }
+
+        .status.processing {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .result-container {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result-container.show {
+            display: block;
+        }
+
+        .result-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .result-text {
+            color: #444;
+            line-height: 1.6;
+            font-size: 1.1em;
+        }
+
+        .error {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .instructions {
+            background: #eff6ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .instructions h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+
+        .instructions ul {
+            margin-left: 20px;
+            color: #555;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Norsk Tale-til-Tekst</h1>
+        <p class="subtitle">Ta opp lyd og få automatisk transkripsjon</p>
+
+        <button id="recordButton" class="record-button">
+            Start Opptak
+        </button>
+
+        <div id="status" class="status"></div>
+
+        <div id="resultContainer" class="result-container">
+            <div class="result-label">Transkripsjon:</div>
+            <div id="resultText" class="result-text"></div>
+        </div>
+
+        <div id="error" class="error"></div>
+
+        <div class="instructions">
+            <h3>Hvordan bruke:</h3>
+            <ul>
+                <li>Klikk på "Start Opptak" for å begynne å ta opp</li>
+                <li>Snakk tydelig på norsk</li>
+                <li>Klikk på "Stopp Opptak" når du er ferdig</li>
+                <li>Vent mens lyden transkriberes (kan ta 5-15 sekunder)</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const MODAL_ENDPOINT = 'https://torrylol--whisper-norwegian-transcribe-file.modal.run';
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        const recordButton = document.getElementById('recordButton');
+        const statusDiv = document.getElementById('status');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultText = document.getElementById('resultText');
+        const errorDiv = document.getElementById('error');
+
+        recordButton.addEventListener('click', toggleRecording);
+
+        async function toggleRecording() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                stopRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                // Be om mikrofon-tilgang
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // Reset state
+                audioChunks = [];
+                hideError();
+                hideResult();
+
+                // Opprett MediaRecorder
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await sendToModal(audioBlob);
+                };
+
+                // Start opptak
+                mediaRecorder.start();
+                isRecording = true;
+
+                // Oppdater UI
+                recordButton.textContent = 'Stopp Opptak';
+                recordButton.classList.add('recording');
+                statusDiv.textContent = '🔴 Tar opp...';
+                statusDiv.classList.add('recording');
+
+            } catch (error) {
+                console.error('Feil ved oppstart av opptak:', error);
+                showError('Kunne ikke få tilgang til mikrofon. Sjekk at du har gitt nettleseren tillatelse.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            }
+
+            isRecording = false;
+
+            // Oppdater UI
+            recordButton.textContent = 'Start Opptak';
+            recordButton.classList.remove('recording');
+            statusDiv.textContent = '';
+            statusDiv.classList.remove('recording');
+        }
+
+        async function sendToModal(audioBlob) {
+            try {
+                // Vis loading state
+                statusDiv.textContent = '⏳ Transkriberer...';
+                statusDiv.classList.add('processing');
+                recordButton.disabled = true;
+
+                // Opprett FormData med lydfilen
+                const formData = new FormData();
+                formData.append('file', audioBlob, 'recording.webm');
+
+                // Send til Modal
+                const response = await fetch(MODAL_ENDPOINT, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // Vis resultat
+                showResult(result.text);
+
+            } catch (error) {
+                console.error('Feil ved sending til Modal:', error);
+                showError('Kunne ikke transkribere lyden. Prøv igjen senere.');
+            } finally {
+                // Reset UI
+                statusDiv.textContent = '';
+                statusDiv.classList.remove('processing');
+                recordButton.disabled = false;
+            }
+        }
+
+        function showResult(text) {
+            resultText.textContent = text;
+            resultContainer.classList.add('show');
+        }
+
+        function hideResult() {
+            resultContainer.classList.remove('show');
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+        }
+
+        function hideError() {
+            errorDiv.classList.remove('show');
+        }
+    </script>
+</body>
+</html>
